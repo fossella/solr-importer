@@ -1,0 +1,19 @@
+{
+    "name": "example/solr-import-replacement",
+    "description": "A standalone PHP replacement for Solr's deprecated/removed Data Import Handler (DIH), built on Solarium.",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.1",
+        "solarium/solarium": "^6.3",
+        "ext-pdo": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "SolrImport\\": "src/"
+        }
+    },
+    "bin": [
+        "bin/import"
+    ]
+}

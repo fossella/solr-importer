@@ -1,0 +1,84 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Usage:
+ *   bin/import full-import  --config=config/data-config.php --core=products
+ *   bin/import delta-import --config=config/data-config.php --core=products
+ *
+ * Optional flags:
+ *   --batch-size=500   how many documents to send to Solr per update request
+ *   --chunk-size=2000  how many rows to read from the DB per page (keyset
+ *                       pagination) - tune this down for very wide rows,
+ *                       up for narrow ones, on a massive table
+ *
+ * This mirrors calling Solr's old DIH endpoint, e.g.
+ *   /solr/products/dataimport?command=full-import
+ */
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Solarium\Client;
+use SolrImport\DataConfig;
+use SolrImport\Env;
+use SolrImport\Importer;
+use SolrImport\StateStore;
+
+// Load connection secrets from .env (DB + Solr). Values already present
+// in the real environment (e.g. set by your process manager) win.
+Env::load(__DIR__ . '/../.env');
+
+function readOpt(array $argv, string $name, ?string $default = null): ?string
+{
+    foreach ($argv as $arg) {
+        if (str_starts_with($arg, "--{$name}=")) {
+            return substr($arg, strlen($name) + 3);
+        }
+    }
+
+    return $default;
+}
+
+$command = $argv[1] ?? null;
+if (!in_array($command, ['full-import', 'delta-import'], true)) {
+    fwrite(STDERR, "Usage: bin/import <full-import|delta-import> --config=path [--core=name]\n");
+    exit(1);
+}
+
+$configPath = readOpt($argv, 'config', __DIR__ . '/../config/example-data-config.php');
+$core = readOpt($argv, 'core', Env::get('SOLR_CORE', 'default'));
+$statePath = readOpt($argv, 'state', __DIR__ . '/../var/state.json');
+$batchSize = (int) readOpt($argv, 'batch-size', '500');
+$chunkSize = (int) readOpt($argv, 'chunk-size', '2000');
+
+$dataConfig = DataConfig::fromFile($configPath);
+
+$solr = new Client(
+    // Configure the Solarium adapter/event dispatcher per your Solarium
+    // version; see https://solarium.readthedocs.io for current setup.
+    null,
+    null,
+    [
+        'endpoint' => [
+            'main' => [
+                'host' => Env::get('SOLR_HOST', 'localhost'),
+                'port' => (int) Env::get('SOLR_PORT', '8983'),
+                'path' => '/',
+                'core' => $core,
+            ],
+        ],
+    ]
+);
+
+$state = new StateStore($statePath);
+$importer = new Importer($dataConfig, $solr, $state, batchSize: $batchSize, chunkSize: $chunkSize);
+
+$start = microtime(true);
+$count = $command === 'full-import'
+    ? $importer->fullImport()
+    : $importer->deltaImport();
+$elapsed = round(microtime(true) - $start, 2);
+
+printf("%s: indexed %d document(s) in %ss\n", $command, $count, $elapsed);
