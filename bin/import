@@ -21,10 +21,12 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Solarium\Client;
+use Solarium\Core\Client\Adapter\Curl;
 use SolrImport\DataConfig;
 use SolrImport\Env;
 use SolrImport\Importer;
 use SolrImport\StateStore;
+use Symfony\Component\EventDispatcher\EventDispatcher;
 
 // Load connection secrets from .env (DB + Solr). Values already present
 // in the real environment (e.g. set by your process manager) win.
@@ -56,20 +58,22 @@ $chunkSize = (int) readOpt($argv, 'chunk-size', '2000');
 $dataConfig = DataConfig::fromFile($configPath);
 
 $solr = new Client(
-    // Configure the Solarium adapter/event dispatcher per your Solarium
-    // version; see https://solarium.readthedocs.io for current setup.
-    null,
-    null,
-    [
-        'endpoint' => [
-            'main' => [
-                'host' => Env::get('SOLR_HOST', 'localhost'),
-                'port' => (int) Env::get('SOLR_PORT', '8983'),
-                'path' => '/',
-                'core' => $core,
-            ],
-        ],
-    ]
+// Solarium 6.x has no implicit default adapter/dispatcher anymore -
+// both must be passed explicitly. Curl is Solarium's built-in
+// cURL-based adapter (needs ext-curl, no extra HTTP client
+// dependency); EventDispatcher is Symfony's PSR-14 implementation.
+        new Curl(),
+        new EventDispatcher(),
+        [
+                'endpoint' => [
+                        'main' => [
+                                'host' => Env::get('SOLR_HOST', 'localhost'),
+                                'port' => (int) Env::get('SOLR_PORT', '8983'),
+                                'path' => '/',
+                                'core' => $core,
+                        ],
+                ],
+        ]
 );
 
 $state = new StateStore($statePath);
@@ -77,8 +81,8 @@ $importer = new Importer($dataConfig, $solr, $state, batchSize: $batchSize, chun
 
 $start = microtime(true);
 $count = $command === 'full-import'
-    ? $importer->fullImport()
-    : $importer->deltaImport();
+        ? $importer->fullImport()
+        : $importer->deltaImport();
 $elapsed = round(microtime(true) - $start, 2);
 
 printf("%s: indexed %d document(s) in %ss\n", $command, $count, $elapsed);
