@@ -15,6 +15,7 @@ final class TransformerRegistry
         $this->register('date', new DateFormatTransformer());
         $this->register('template', new TemplateTransformer());
         $this->register('script', new ScriptTransformer());
+        $this->register('split', new SplitTransformer());
     }
 
     public function register(string $name, TransformerInterface $transformer): void
